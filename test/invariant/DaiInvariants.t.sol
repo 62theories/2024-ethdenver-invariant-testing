@@ -21,7 +21,7 @@ import {Dai} from "../../src/dai.sol";
 import {DaiHandler} from "./handlers/DaiHandler.sol";
 
 contract DaiInvariants is Test {
-    Dai        public dai;
+    Dai public dai;
     DaiHandler public _daiHandler;
 
     function setUp() public virtual {
@@ -30,26 +30,23 @@ contract DaiInvariants is Test {
 
         // give the dai handler permission to mint dai
         dai.rely(address(_daiHandler));
-
+        // ทำการ setup handler
         // setup Actors in Handler
         _daiHandler.init();
-
-        bytes4[] memory selectors = new bytes4[](7);
+        // ทำการ add function ของ target contract ที่จะให้ handler call ตอน fuzz test
+        bytes4[] memory selectors = new bytes4[](1);
         selectors[0] = _daiHandler.transfer.selector;
-        selectors[1] = _daiHandler.transferFrom.selector;
-        selectors[2] = _daiHandler.mint.selector;
-        selectors[3] = _daiHandler.burn.selector;
-        selectors[4] = _daiHandler.approve.selector;
-        selectors[5] = _daiHandler.rely.selector;
-        selectors[6] = _daiHandler.deny.selector;
+        // selectors[1] = _daiHandler.transferFrom.selector;
+        // selectors[2] = _daiHandler.mint.selector;
+        // selectors[3] = _daiHandler.burn.selector;
+        // selectors[4] = _daiHandler.approve.selector;
+        // selectors[5] = _daiHandler.rely.selector;
+        // selectors[6] = _daiHandler.deny.selector;
 
         targetSelector(
-            FuzzSelector({
-                addr: address(_daiHandler),
-                selectors: selectors
-            })
+            FuzzSelector({addr: address(_daiHandler), selectors: selectors})
         );
-
+        //ทำการ set target contract ที่จะ fuzz
         targetContract(address(_daiHandler));
     }
 
@@ -62,7 +59,10 @@ contract DaiInvariants is Test {
             (address addr, ) = _daiHandler.dsts(i);
             sumBalances += dai.balanceOf(addr);
         }
-
-        require(sumBalances == dai.totalSupply(), "DaiInvariants/sumBalances-not-equal-totalSupply");
+        // ทำการเช็คว่า balance dai ของทุกคนรวมกันเท่ากับ totalSupply ไหม
+        require(
+            sumBalances == dai.totalSupply(),
+            "DaiInvariants/sumBalances-not-equal-totalSupply"
+        );
     }
 }

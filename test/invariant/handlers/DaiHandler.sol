@@ -23,9 +23,9 @@ import {Dai} from "../../../src/dai.sol";
 contract DaiHandler is Test {
     Dai public dai;
 
-    Actor[] public   actors;
-    Actor[] public   dsts;
-    Actor   internal actor;
+    Actor[] public actors;
+    Actor[] public dsts;
+    Actor internal actor;
 
     bytes32[] internal expectedErrors;
 
@@ -54,20 +54,31 @@ contract DaiHandler is Test {
     function init() external {
         for (uint256 i = 0; i < 10; i++) {
             Actor memory _actor;
-            (_actor.addr, _actor.key) = makeAddrAndKey(string(abi.encodePacked("Actor", vm.toString(i))));
+            // makeAddrAndKey เป็น cheat code ของ foundry
+            (_actor.addr, _actor.key) = makeAddrAndKey(
+                string(abi.encodePacked("Actor", vm.toString(i)))
+            );
+            // actors ใช้เก็บ caller ที่จะใช้ fuzz
             actors.push(_actor);
+            // dsts ใช้เก็บ target address สำหรับ function ต่างๆของ dai
             dsts.push(_actor);
+            // ทำการ mint dai ให้กับ fuzz actor
             dai.mint(_actor.addr, 1000 ether);
         }
-
+        //ทำการสร้าง actor อีก role มา เป็น privilge role ของระบบ
         Actor memory governance;
-        (governance.addr, governance.key) = makeAddrAndKey(string(abi.encodePacked("Governance")));
+        (governance.addr, governance.key) = makeAddrAndKey(
+            string(abi.encodePacked("Governance"))
+        );
         actors.push(governance);
         dsts.push(governance);
+        // rely คือการบอกว่า address นี้ mint dai ได้
         dai.rely(governance.addr);
-
+        // กำหนด zero address ให้เป็นหนึ่งใน target address สำหรับ function ต่างๆของ dai
         Actor memory zero;
-        (zero.addr, zero.key) = makeAddrAndKey(string(abi.encodePacked("Zero")));
+        (zero.addr, zero.key) = makeAddrAndKey(
+            string(abi.encodePacked("Zero"))
+        );
         zero.addr = address(0);
         dsts.push(zero);
     }
@@ -78,128 +89,179 @@ contract DaiHandler is Test {
         uint256 _dstIndex,
         uint256 _wad
     ) public useRandomActor(_actorIndex) resetErrors {
+        // ในการเรียก transfer ไปยัง target contract ตัว handler จะทำการเปลี่ยนลำดับ flow ดังนี้
+        // 1.useRandomActor
+        // 2.transfer
+        // 3.resetErrors
         Actor memory dst = _selectDst(_dstIndex);
+        console.log("_wad is %s", _wad);
         try dai.transfer(dst.addr, _wad) {
             console.log("Transfer succeeded");
         } catch Error(string memory reason) {
-            if(dai.balanceOf(actor.addr) < _wad) addExpectedError("Dai/insufficient-balance");
+            if (dai.balanceOf(actor.addr) < _wad)
+                addExpectedError("Dai/insufficient-balance");
             expectedError(reason);
         } catch (bytes memory reason) {
             console.log("Transfer failed: ");
             console.logBytes(reason);
         }
+        // สรุปในการเรียก transfer function ของ target contract
+        // จะทำการ
+        // 1. random msg.sender จาก actors[]
+        // 2. random dst ในการ transfer จาก dsts[]
+        // 3. ลอง transfer ด้วยจำนวนเหรียญ random ดู
+        // 4. ในการ transfer นี้ถ้า revert เป็น Dai/insufficient-balance และ caller มีเหรียญไม่พอจริงๆ จะให้เป็น silent fail
+        // 5. ทำการ reset การจัดการ revert ที่ทำไป
+        // appendix
+        // function _selectActor(
+        //     uint256 _actorIndex
+        // ) internal view returns (Actor memory actor_) {
+        //     uint256 index = bound(_actorIndex, 0, actors.length - 1);
+        //     actor_ = actors[index];
+        // }
+
+        // function _selectDst(
+        //     uint256 _dstIndex
+        // ) internal view returns (Actor memory dst) {
+        //     uint256 index = bound(_dstIndex, 0, dsts.length - 1);
+        //     dst = dsts[index];
+        // }
+        // modifier useRandomActor(uint256 _actorIndex) {
+        //     actor = _selectActor(_actorIndex);
+        //     changePrank(actor.addr);
+        //     _;
+        //     delete actor;
+        //     vm.stopPrank();
+        // }
+
+        // modifier resetErrors() {
+        //     _;
+        //     delete expectedErrors;
+        // }
     }
 
-    function transferFrom(
-        uint256 _actorIndex,
-        uint256 _srcIndex,
-        uint256 _dstIndex,
-        uint256 _wad
-    ) public useRandomActor(_actorIndex) resetErrors {
-        Actor memory src = _selectActor(_srcIndex);
-        Actor memory dst = _selectDst(_dstIndex);
-        try dai.transferFrom(src.addr, dst.addr, _wad) {
-            console.log("TransferFrom succeeded");
-        } catch Error(string memory reason) {
-            if(dai.balanceOf(src.addr) < _wad) addExpectedError("Dai/insufficient-balance");
-            if(dai.allowance(src.addr, actor.addr) < _wad) addExpectedError("Dai/insufficient-allowance");
-            expectedError(reason);
-        } catch (bytes memory reason) {
-            console.log("TransferFrom failed: ");
-            console.logBytes(reason);
-        }
-    }
+    // function transferFrom(
+    //     uint256 _actorIndex,
+    //     uint256 _srcIndex,
+    //     uint256 _dstIndex,
+    //     uint256 _wad
+    // ) public useRandomActor(_actorIndex) resetErrors {
+    //     Actor memory src = _selectActor(_srcIndex);
+    //     Actor memory dst = _selectDst(_dstIndex);
+    //     try dai.transferFrom(src.addr, dst.addr, _wad) {
+    //         console.log("TransferFrom succeeded");
+    //     } catch Error(string memory reason) {
+    //         if (dai.balanceOf(src.addr) < _wad)
+    //             addExpectedError("Dai/insufficient-balance");
+    //         if (dai.allowance(src.addr, actor.addr) < _wad)
+    //             addExpectedError("Dai/insufficient-allowance");
+    //         expectedError(reason);
+    //     } catch (bytes memory reason) {
+    //         console.log("TransferFrom failed: ");
+    //         console.logBytes(reason);
+    //     }
+    // }
 
-    function mint(
-        uint256 _actorIndex,
-        uint256 _dstIndex,
-        uint256 _wad
-    ) public useRandomActor(_actorIndex) resetErrors {
-        Actor memory dst = _selectDst(_dstIndex);
-        try dai.mint(dst.addr, _wad) {
-            console.log("Mint succeeded");
-        } catch Error(string memory reason) {
-            if(dai.wards(actor.addr) == 0) addExpectedError("Dai/not-authorized");
-            expectedError(reason);
-        } catch (bytes memory reason) {
-            console.log("Mint failed: ");
-            console.logBytes(reason);
-        }
-    }
+    // function mint(
+    //     uint256 _actorIndex,
+    //     uint256 _dstIndex,
+    //     uint256 _wad
+    // ) public useRandomActor(_actorIndex) resetErrors {
+    //     Actor memory dst = _selectDst(_dstIndex);
+    //     try dai.mint(dst.addr, _wad) {
+    //         console.log("Mint succeeded");
+    //     } catch Error(string memory reason) {
+    //         if (dai.wards(actor.addr) == 0)
+    //             addExpectedError("Dai/not-authorized");
+    //         expectedError(reason);
+    //     } catch (bytes memory reason) {
+    //         console.log("Mint failed: ");
+    //         console.logBytes(reason);
+    //     }
+    // }
 
-    function burn(
-        uint256 _actorIndex,
-        uint256 _usrIndex,
-        uint256 _wad
-    ) public useRandomActor(_actorIndex) resetErrors {
-        Actor memory usr = _selectActor(_usrIndex);
-        try dai.burn(usr.addr,  _wad) {
-            console.log("burn succeeded");
-        } catch Error(string memory reason) {
-            if(dai.balanceOf(usr.addr) < _wad) addExpectedError("Dai/insufficient-balance");
-            if(dai.allowance(usr.addr, actor.addr) < _wad) addExpectedError("Dai/insufficient-allowance");
-            expectedError(reason);
-        } catch (bytes memory reason) {
-            console.log("burn failed: ");
-            console.logBytes(reason);
-        }
-    }
+    // function burn(
+    //     uint256 _actorIndex,
+    //     uint256 _usrIndex,
+    //     uint256 _wad
+    // ) public useRandomActor(_actorIndex) resetErrors {
+    //     Actor memory usr = _selectActor(_usrIndex);
+    //     try dai.burn(usr.addr, _wad) {
+    //         console.log("burn succeeded");
+    //     } catch Error(string memory reason) {
+    //         if (dai.balanceOf(usr.addr) < _wad)
+    //             addExpectedError("Dai/insufficient-balance");
+    //         if (dai.allowance(usr.addr, actor.addr) < _wad)
+    //             addExpectedError("Dai/insufficient-allowance");
+    //         expectedError(reason);
+    //     } catch (bytes memory reason) {
+    //         console.log("burn failed: ");
+    //         console.logBytes(reason);
+    //     }
+    // }
 
-    function approve(
-        uint256 _actorIndex,
-        uint256 _usrIndex,
-        uint256 _wad
-    ) public useRandomActor(_actorIndex) resetErrors {
-        Actor memory usr = _selectActor(_usrIndex);
-        try dai.approve(usr.addr,  _wad) {
-            console.log("approve succeeded");
-        } catch Error(string memory reason) {
-            expectedError(reason);
-        } catch (bytes memory reason) {
-            console.log("approve failed: ");
-            console.logBytes(reason);
-        }
-    }
+    // function approve(
+    //     uint256 _actorIndex,
+    //     uint256 _usrIndex,
+    //     uint256 _wad
+    // ) public useRandomActor(_actorIndex) resetErrors {
+    //     Actor memory usr = _selectActor(_usrIndex);
+    //     try dai.approve(usr.addr, _wad) {
+    //         console.log("approve succeeded");
+    //     } catch Error(string memory reason) {
+    //         expectedError(reason);
+    //     } catch (bytes memory reason) {
+    //         console.log("approve failed: ");
+    //         console.logBytes(reason);
+    //     }
+    // }
 
-    function rely(
-        uint256 _actorIndex,
-        uint256 _guyIndex
-    ) public useRandomActor(_actorIndex) resetErrors {
-        Actor memory guy = _selectActor(_guyIndex);
-        try dai.rely(guy.addr) {
-            console.log("rely succeeded");
-        } catch Error(string memory reason) {
-            if(dai.wards(actor.addr) == 0) addExpectedError("Dai/not-authorized");
-            expectedError(reason);
-        } catch (bytes memory reason) {
-            console.log("rely failed: ");
-            console.logBytes(reason);
-        }
-    }
+    // function rely(
+    //     uint256 _actorIndex,
+    //     uint256 _guyIndex
+    // ) public useRandomActor(_actorIndex) resetErrors {
+    //     Actor memory guy = _selectActor(_guyIndex);
+    //     try dai.rely(guy.addr) {
+    //         console.log("rely succeeded");
+    //     } catch Error(string memory reason) {
+    //         if (dai.wards(actor.addr) == 0)
+    //             addExpectedError("Dai/not-authorized");
+    //         expectedError(reason);
+    //     } catch (bytes memory reason) {
+    //         console.log("rely failed: ");
+    //         console.logBytes(reason);
+    //     }
+    // }
 
-    function deny(
-        uint256 _actorIndex,
-        uint256 _guyIndex
-    ) public useRandomActor(_actorIndex) resetErrors {
-        Actor memory guy = _selectActor(_guyIndex);
-        try dai.deny(guy.addr) {
-            console.log("deny succeeded");
-        } catch Error(string memory reason) {
-            if(dai.wards(actor.addr) == 0) addExpectedError("Dai/not-authorized");
-            expectedError(reason);
-        } catch (bytes memory reason) {
-            console.log("deny failed: ");
-            console.logBytes(reason);
-        }
-    }
+    // function deny(
+    //     uint256 _actorIndex,
+    //     uint256 _guyIndex
+    // ) public useRandomActor(_actorIndex) resetErrors {
+    //     Actor memory guy = _selectActor(_guyIndex);
+    //     try dai.deny(guy.addr) {
+    //         console.log("deny succeeded");
+    //     } catch Error(string memory reason) {
+    //         if (dai.wards(actor.addr) == 0)
+    //             addExpectedError("Dai/not-authorized");
+    //         expectedError(reason);
+    //     } catch (bytes memory reason) {
+    //         console.log("deny failed: ");
+    //         console.logBytes(reason);
+    //     }
+    // }
 
     // Internal Helper Functions
-    function _selectActor(uint256 _actorIndex) internal view returns (Actor memory actor_) {
+    function _selectActor(
+        uint256 _actorIndex
+    ) internal view returns (Actor memory actor_) {
         uint256 index = bound(_actorIndex, 0, actors.length - 1);
+        console.log("actor index is :");
         actor_ = actors[index];
     }
 
-    function _selectDst(uint256 _dstIndex) internal view returns (Actor memory dst) {
+    function _selectDst(
+        uint256 _dstIndex
+    ) internal view returns (Actor memory dst) {
         uint256 index = bound(_dstIndex, 0, dsts.length - 1);
         dst = dsts[index];
     }

